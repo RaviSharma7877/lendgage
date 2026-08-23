@@ -28,6 +28,7 @@ export class LocalObjectStore implements ObjectStore {
     return full;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async put(key: string, body: Buffer, _contentType: string): Promise<StoredObject> {
     const full = this.resolveKey(key);
     await fs.mkdir(path.dirname(full), { recursive: true });

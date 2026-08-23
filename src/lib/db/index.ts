@@ -11,6 +11,6 @@ export function isDuplicateKeyError(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
-    (error as any).code === 'P2002'
+    (error as { code?: string }).code === 'P2002'
   )
 }

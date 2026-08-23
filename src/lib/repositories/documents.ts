@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { newId } from "@/lib/reference";
 import type { DocumentType } from "@/lib/validation/application";
-import type { Document, Prisma } from "@prisma/client";
+import type { Document, Prisma, DocumentType as PrismaDocType } from "@prisma/client";
 
 export type DocumentRow = Omit<Document, "size_bytes"> & { size_bytes: number };
 
@@ -27,7 +27,7 @@ export async function createStagedDocument(input: {
     data: {
       id: input.id,
       user_id: input.userId,
-      doc_type: input.docType as any,
+      doc_type: input.docType as PrismaDocType,
       original_name: input.originalName,
       storage_key: input.storageKey,
       mime_type: input.mimeType,
@@ -74,7 +74,7 @@ export async function attachDocumentToApplication(
     where: {
       id: input.documentId,
       user_id: input.userId,
-      doc_type: input.docType as any,
+      doc_type: input.docType as PrismaDocType,
       application_id: null
     },
     data: {
