@@ -5,7 +5,14 @@ import mariadb from 'mariadb'
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
 
 export const prisma = globalForPrisma.prisma ?? (() => {
-  const pool = mariadb.createPool({ uri: process.env.DATABASE_URL! })
+  const url = new URL(process.env.DATABASE_URL!)
+  const pool = mariadb.createPool({
+    host: url.hostname,
+    port: url.port ? parseInt(url.port, 10) : 3306,
+    user: url.username,
+    password: decodeURIComponent(url.password),
+    database: url.pathname.slice(1),
+  })
   const adapter = new PrismaMariaDb(pool)
   return new PrismaClient({ adapter })
 })()
