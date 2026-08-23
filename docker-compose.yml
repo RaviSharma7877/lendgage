@@ -13,7 +13,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - pcp-mysql-data:/var/lib/mysql
     healthcheck:
