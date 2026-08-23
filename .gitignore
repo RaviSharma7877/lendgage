@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local secrets and uploaded documents (the template IS committed)
+.env
+.env.local
+!.env.example
+/storage/uploads/*
+!/storage/uploads/.gitkeep
