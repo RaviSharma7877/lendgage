@@ -185,3 +185,5 @@ npm run smoke -- http://localhost:3000
 ```
 
 See `WRITEUP.md` for the schema rationale, trade-offs and what would come next.
+#   l e n d g a g e  
+ 
