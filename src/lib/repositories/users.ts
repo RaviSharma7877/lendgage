@@ -1,34 +1,19 @@
-import type { RowDataPacket } from "mysql2/promise";
-
-import { execute, queryOne } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { newId } from "@/lib/reference";
+import type { User } from "@prisma/client";
 
-export type UserRow = RowDataPacket & {
-  id: string;
-  email: string;
-  password_hash: string;
-  full_name: string;
-  created_at: Date;
-};
+export type UserRow = User;
 
 export async function findUserByEmail(email: string): Promise<UserRow | null> {
-  return queryOne<UserRow>(
-    `SELECT id, email, password_hash, full_name, created_at
-       FROM users
-      WHERE email = ?
-      LIMIT 1`,
-    [email]
-  );
+  return prisma.user.findUnique({
+    where: { email }
+  });
 }
 
 export async function findUserById(id: string): Promise<UserRow | null> {
-  return queryOne<UserRow>(
-    `SELECT id, email, password_hash, full_name, created_at
-       FROM users
-      WHERE id = ?
-      LIMIT 1`,
-    [id]
-  );
+  return prisma.user.findUnique({
+    where: { id }
+  });
 }
 
 export async function createUser(input: {
@@ -36,11 +21,13 @@ export async function createUser(input: {
   passwordHash: string;
   fullName: string;
 }): Promise<{ id: string; email: string; fullName: string }> {
-  const id = newId();
-  await execute(
-    `INSERT INTO users (id, email, password_hash, full_name)
-     VALUES (?, ?, ?, ?)`,
-    [id, input.email, input.passwordHash, input.fullName]
-  );
-  return { id, email: input.email, fullName: input.fullName };
+  const user = await prisma.user.create({
+    data: {
+      id: newId(),
+      email: input.email,
+      password_hash: input.passwordHash,
+      full_name: input.fullName,
+    },
+  });
+  return { id: user.id, email: user.email, fullName: user.full_name };
 }
