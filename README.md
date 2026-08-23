@@ -1,36 +1,187 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Provisional Certificate Application Portal
 
-## Getting Started
+A small full-stack portal where an applicant signs up, files a Provisional Certificate
+application in three steps, uploads two supporting PDFs, and downloads a server-generated
+acknowledgement they can re-download from a dashboard at any time.
 
-First, run the development server:
+Built with **Next.js 15 (App Router) · TypeScript · Tailwind CSS v4 · shadcn/ui · MySQL 8 · pdf-lib**.
+
+---
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1. install
+npm install
+
+# 2. database — either use the bundled compose file...
+docker compose up -d
+# ...or point DATABASE_URL at any MySQL 8 you already run
+
+# 3. configure
+cp .env.example .env.local
+#   - set DATABASE_URL
+#   - set JWT_SECRET (at least 32 chars):
+#     node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+
+# 4. create the schema (idempotent)
+npm run db:migrate
+
+# 5. run
+npm run dev        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open http://localhost:3000, create an account, and file an application.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Other scripts:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | What it does |
+| --- | --- |
+| `npm run db:migrate` | Applies `db/schema.sql`. Safe to re-run. |
+| `npm run db:reset` | Drops the tables and re-applies the schema. |
+| `npm run typecheck` | `tsc --noEmit`. |
+| `npm run build` / `npm start` | Production build and server. |
+| `npm run smoke -- http://localhost:3000` | End-to-end API smoke test (35 assertions). |
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## Environment variables
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | yes | — | MySQL 8 connection string, e.g. `mysql://pcp:pcp_password@localhost:3306/provisional_certificate` |
+| `JWT_SECRET` | yes | — | HMAC key for session JWTs and signed download tokens. Minimum 32 characters. |
+| `STORAGE_DIR` | no | `./storage/uploads` | Where uploaded PDFs are written. Deliberately outside `public/`. |
+| `SESSION_TTL_SECONDS` | no | `604800` (7 days) | Session lifetime. |
+| `MAX_UPLOAD_BYTES` | no | `5242880` (5 MB) | Per-file upload ceiling. |
+| `DB_SSL` | no | — | Set to `require` for a managed MySQL (PlanetScale, RDS, Railway). |
+| `DB_POOL_MAX` | no | `10` | Connection-pool size. |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Nothing reads `process.env` directly; `src/lib/env.ts` is the single, fail-fast accessor.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Architecture
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+├── middleware.ts              Edge JWT check — guards /dashboard, /apply, /applications
+├── app/
+│   ├── page.tsx               Public landing page
+│   ├── login, signup          Auth screens (split layout)
+│   ├── (portal)/              Signed-in shell + server-side session guard
+│   │   ├── dashboard          Status dashboard (server component)
+│   │   ├── apply              3-step wizard (client)
+│   │   └── applications/[id]  Application detail
+│   └── api/
+│       ├── auth/{signup,login,logout,me}
+│       ├── uploads            multipart PDF intake
+│       ├── applications       list + submit
+│       ├── applications/[id]  detail
+│       ├── applications/[id]/certificate   PDF stream + retry issue
+│       └── files/[id]         private document download (signed token)
+├── components/
+│   ├── ui/                    shadcn/ui primitives
+│   ├── apply/                 wizard: stepper, steps, upload field, success panel
+│   ├── dashboard/, layout/, auth/
+└── lib/
+    ├── env.ts                 fail-fast env access
+    ├── db/                    mysql2 pool, query helpers, transactions
+    ├── repositories/          users, applications, documents (all SQL lives here)
+    ├── auth/                  bcrypt hashing, jose JWTs, session cookie
+    ├── api/                   error types + centralised route wrapper
+    ├── validation/            Zod schemas shared by client and server
+    ├── storage/               ObjectStore interface + local-disk driver
+    ├── pdf/certificate.ts     server-side PDF generation
+    └── dto.ts                 row → API shape mapping
+db/schema.sql                  the entire schema, idempotent
+scripts/                       migrate, reset, smoke test
+```
+
+### Request flow for a submission
+
+1. `POST /api/uploads` — twice, once per document. Each file is checked for MIME type,
+   extension, size **and** `%PDF-` magic bytes, hashed (SHA-256), written to
+   `STORAGE_DIR/users/<userId>/<documentId>.pdf` with mode `0600`, and recorded as a
+   *staged* row (`documents.application_id IS NULL`).
+2. `POST /api/applications` — the body is validated with the same Zod schema the browser
+   used. Inside one transaction: insert the application, then attach both staged documents.
+   If either attach fails, the whole thing rolls back.
+3. The acknowledgement is issued: a serial is drawn from the `certificate_serials`
+   AUTO_INCREMENT table and the row flips to `COMPLETED`.
+4. `GET /api/applications/:id/certificate` renders the PDF with pdf-lib on demand.
+
+---
+
+## API reference
+
+All responses are enveloped: `{ "data": … }` on success, `{ "error": { code, message, details? } }` on failure.
+Authentication is a JWT — sent as an httpOnly cookie by the browser, or as
+`Authorization: Bearer <token>` from any other client.
+
+| Method | Path | Success | Notes |
+| --- | --- | --- | --- |
+| `POST` | `/api/auth/signup` | `201` | `409` if the email exists, `400` on weak password |
+| `POST` | `/api/auth/login` | `200` | `401` with an identical message for bad email *or* password |
+| `POST` | `/api/auth/logout` | `200` | Clears the cookie |
+| `GET` | `/api/auth/me` | `200` | Current session + application counts |
+| `POST` | `/api/uploads` | `201` | `413` too large, `415` not a PDF, `400` no file |
+| `GET` | `/api/applications` | `200` | Caller's applications, newest first |
+| `POST` | `/api/applications` | `201` | `400` validation, `409` duplicate registration number |
+| `GET` | `/api/applications/:id` | `200` | `404` for someone else's id (never `403`, so ids stay unenumerable) |
+| `GET` | `/api/applications/:id/certificate` | `200` | `application/pdf`; add `?inline=1` to view instead of download |
+| `POST` | `/api/applications/:id/certificate` | `200` | Idempotent retry of certificate issuing |
+| `GET` | `/api/files/:id?token=…` | `200` | `403` invalid/expired token, `404` not the owner's document |
+
+---
+
+## Security notes
+
+- **Passwords** — bcrypt, cost 12. A login attempt for an unknown email still performs a
+  bcrypt comparison so the response time does not reveal whether the account exists.
+- **Sessions** — HS256 JWT (jose) in an httpOnly, SameSite=Lax cookie, `secure` in
+  production. The same verification runs at the edge in `middleware.ts` and in every
+  protected route handler.
+- **Documents** — stored outside `public/`, so there is no static URL to guess. The only
+  way out is `/api/files/:id`, which requires either the owner's session or a signed
+  five-minute token scoped to that one document. Every query is scoped by `user_id`.
+- **Uploads** — type, extension, size and magic bytes are all validated server-side;
+  filenames are stripped of path separators and control characters.
+- **SQL** — every statement is a parameterised prepared statement; all of it lives in
+  `src/lib/repositories`.
+- **Secrets** — nothing hardcoded; `.env.local` is gitignored and `env.ts` refuses to boot
+  with a missing or too-short `JWT_SECRET`.
+
+---
+
+## Deployment
+
+The app is a standard Next.js 15 server app plus a MySQL 8 database.
+
+1. Provision MySQL (PlanetScale, RDS, Railway, Aiven…) and set `DATABASE_URL` and
+   `DB_SSL=require`.
+2. Run `npm run db:migrate` once against it.
+3. Deploy the app (Railway, Render, Fly.io, a VM, or Vercel) with `DATABASE_URL`,
+   `JWT_SECRET` and — importantly — a **persistent volume mounted at `STORAGE_DIR`**.
+   Local disk on a serverless platform is ephemeral, so on Vercel-style hosting swap the
+   storage driver for S3 first: implement `ObjectStore` in `src/lib/storage/`, change the
+   one export in `src/lib/storage/index.ts`, and replace the signed-token route with S3
+   pre-signed URLs. No route or component changes are needed.
+
+---
+
+## Testing
+
+`scripts/smoke.mjs` walks the whole journey against a running server — signup and the
+duplicate/weak-password paths, route protection, the three upload rejection paths, both
+successful uploads, signed and tampered download links, submit and its validation and
+conflict paths, the PDF bytes, the dashboard listing, and cross-account isolation
+(a second account gets `404` for the first one's application and document).
+
+```bash
+npm run build && npm start &
+npm run smoke -- http://localhost:3000
+# → 35 passed, 0 failed
+```
+
+See `WRITEUP.md` for the schema rationale, trade-offs and what would come next.
