@@ -72,9 +72,9 @@ export class S3ObjectStore implements ObjectStore {
 
       const bytes = await response.Body.transformToByteArray();
       return Buffer.from(bytes);
-    } catch (error: any) {
+    } catch (error: unknown) {
       // AWS SDK throws NoSuchKey if the object doesn't exist
-      if (error.name === "NoSuchKey") {
+      if (error instanceof Error && error.name === "NoSuchKey") {
         throw notFound("The stored file is no longer available.");
       }
       throw error;
