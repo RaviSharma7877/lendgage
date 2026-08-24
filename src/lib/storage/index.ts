@@ -1,7 +1,9 @@
 import path from "node:path";
 
 import { LocalObjectStore } from "./local";
+import { S3ObjectStore } from "./s3";
 import type { ObjectStore } from "./types";
+import { env } from "@/lib/env";
 
 export type { ObjectStore, StoredObject } from "./types";
 
@@ -9,7 +11,9 @@ export type { ObjectStore, StoredObject } from "./types";
  * Single place where the storage driver is chosen. Point this at an S3 adapter
  * and nothing else in the codebase has to change.
  */
-export const objectStore: ObjectStore = new LocalObjectStore();
+export const objectStore: ObjectStore = env.isS3Configured 
+  ? new S3ObjectStore() 
+  : new LocalObjectStore();
 
 /**
  * Keys are namespaced per user, which keeps one applicant's documents

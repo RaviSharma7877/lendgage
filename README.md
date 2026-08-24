@@ -56,6 +56,10 @@ Other scripts:
 | `MAX_UPLOAD_BYTES` | no | `5242880` (5 MB) | Per-file upload ceiling. |
 | `DB_SSL` | no | — | Set to `require` for a managed MySQL (PlanetScale, RDS, Railway). |
 | `DB_POOL_MAX` | no | `10` | Connection-pool size. |
+| `S3_BUCKET_NAME` | no | — | S3 bucket name. If provided with Region, switches storage to S3. |
+| `S3_REGION` | no | — | S3 region (e.g. `us-east-1`). |
+| `APP_AWS_ACCESS_KEY_ID` | no | — | Standard AWS credentials (renamed to avoid Netlify reserved vars). |
+| `APP_AWS_SECRET_ACCESS_KEY` | no | — | Standard AWS credentials (renamed to avoid Netlify reserved vars). |
 
 Nothing reads `process.env` directly; `src/lib/env.ts` is the single, fail-fast accessor.
 
@@ -161,12 +165,12 @@ The app is a standard Next.js 15 server app plus a MySQL 8 database.
 1. Provision MySQL (PlanetScale, RDS, Railway, Aiven…) and set `DATABASE_URL` and
    `DB_SSL=require`.
 2. Run `npm run db:migrate` once against it.
-3. Deploy the app (Railway, Render, Fly.io, a VM, or Vercel) with `DATABASE_URL`,
-   `JWT_SECRET` and — importantly — a **persistent volume mounted at `STORAGE_DIR`**.
-   Local disk on a serverless platform is ephemeral, so on Vercel-style hosting swap the
-   storage driver for S3 first: implement `ObjectStore` in `src/lib/storage/`, change the
-   one export in `src/lib/storage/index.ts`, and replace the signed-token route with S3
-   pre-signed URLs. No route or component changes are needed.
+3. Deploy the app (Railway, Render, Fly.io, a VM, or Vercel/Netlify) with `DATABASE_URL`,
+   `JWT_SECRET`.
+   If you deploy on a serverless platform (like Vercel or Netlify) where local disk is ephemeral,
+   you must configure S3 storage. Provide `S3_BUCKET_NAME`, `S3_REGION`, `APP_AWS_ACCESS_KEY_ID`, 
+   and `APP_AWS_SECRET_ACCESS_KEY` environment variables. The application will automatically 
+   detect these and switch from local disk storage to S3 object storage seamlessly. No route or component changes are needed.
 
 ---
 

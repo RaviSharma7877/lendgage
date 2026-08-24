@@ -42,6 +42,21 @@ export const env = {
   get isProduction() {
     return process.env.NODE_ENV === "production";
   },
+  get s3BucketName() {
+    return optional("S3_BUCKET_NAME", "");
+  },
+  get s3Region() {
+    return optional("S3_REGION", "");
+  },
+  get awsAccessKeyId() {
+    return optional("APP_AWS_ACCESS_KEY_ID", "");
+  },
+  get awsSecretAccessKey() {
+    return optional("APP_AWS_SECRET_ACCESS_KEY", "");
+  },
+  get isS3Configured() {
+    return this.s3BucketName !== "" && this.s3Region !== "";
+  },
 };
 
 export const SESSION_COOKIE = "pcp_session";
