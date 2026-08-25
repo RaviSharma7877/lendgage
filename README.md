@@ -160,7 +160,7 @@ Authentication is a JWT — sent as an httpOnly cookie by the browser, or as
 
 The app is a standard Next.js 15 server app plus a PostgreSQL database.
 
-1. Provision Postgres (Railway, Neon, RDS, Supabase…) and set `DATABASE_URL`
+1. Provision Postgres (Railway, RDS, Supabase…) and set `DATABASE_URL`
    (append `?sslmode=require` for a managed instance).
 2. Run `npm run db:migrate` once against it.
 3. Deploy the app (Railway, Render, Fly.io, a VM, or Vercel/Netlify) with `DATABASE_URL`,
