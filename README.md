@@ -14,9 +14,9 @@ Built with **Next.js 15 (App Router) · TypeScript · Tailwind CSS v4 · shadcn/
 # 1. install
 npm install
 
-# 2. database — either use the bundled compose file...
+# 2. database — either use the bundled compose file for local dev...
 docker compose up -d
-# ...or point DATABASE_URL at any Postgres 14+ you already run
+# ...or point DATABASE_URL at a Railway Postgres instance
 
 # 3. configure
 cp .env.example .env.local
@@ -56,8 +56,8 @@ Other scripts:
 | `MAX_UPLOAD_BYTES` | no | `5242880` (5 MB) | Per-file upload ceiling. |
 | `S3_BUCKET_NAME` | no | — | S3 bucket name. If provided with Region, switches storage to S3. |
 | `S3_REGION` | no | — | S3 region (e.g. `us-east-1`). |
-| `APP_AWS_ACCESS_KEY_ID` | no | — | Standard AWS credentials (renamed to avoid Netlify reserved vars). |
-| `APP_AWS_SECRET_ACCESS_KEY` | no | — | Standard AWS credentials (renamed to avoid Netlify reserved vars). |
+| `APP_AWS_ACCESS_KEY_ID` | no | — | AWS credentials for S3 (custom name to avoid clashing with platform-reserved `AWS_*` vars). |
+| `APP_AWS_SECRET_ACCESS_KEY` | no | — | AWS credentials for S3 (custom name to avoid clashing with platform-reserved `AWS_*` vars). |
 
 Nothing reads `process.env` directly; `src/lib/env.ts` is the single, fail-fast accessor.
 
@@ -158,17 +158,18 @@ Authentication is a JWT — sent as an httpOnly cookie by the browser, or as
 
 ## Deployment
 
-The app is a standard Next.js 15 server app plus a PostgreSQL database.
+The app is deployed as a Next.js 15 server app on **Railway**, backed by a **Railway
+PostgreSQL** database and **AWS S3** for document storage.
 
-1. Provision Postgres (Railway, RDS, Supabase…) and set `DATABASE_URL`
-   (append `?sslmode=require` for a managed instance).
+1. Provision a Postgres database on Railway and set `DATABASE_URL` to its connection string
+   (append `?sslmode=require`).
 2. Run `npm run db:migrate` once against it.
-3. Deploy the app (Railway, Render, Fly.io, a VM, or Vercel/Netlify) with `DATABASE_URL`,
-   `JWT_SECRET`.
-   If you deploy on a serverless platform (like Vercel or Netlify) where local disk is ephemeral,
-   you must configure S3 storage. Provide `S3_BUCKET_NAME`, `S3_REGION`, `APP_AWS_ACCESS_KEY_ID`, 
-   and `APP_AWS_SECRET_ACCESS_KEY` environment variables. The application will automatically 
-   detect these and switch from local disk storage to S3 object storage seamlessly. No route or component changes are needed.
+3. Create an S3 bucket (private, no public access) and set `S3_BUCKET_NAME`, `S3_REGION`,
+   `APP_AWS_ACCESS_KEY_ID`, and `APP_AWS_SECRET_ACCESS_KEY`. The app detects these at boot
+   and switches from local-disk storage to S3 automatically — no route or component changes
+   needed. See `aws_s3_setup.md` for bucket/IAM setup.
+4. Deploy the app itself on Railway with `DATABASE_URL`, `JWT_SECRET`, and the four S3
+   variables above set as service environment variables.
 
 ---
 
