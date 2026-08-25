@@ -4,7 +4,7 @@ A small full-stack portal where an applicant signs up, files a Provisional Certi
 application in three steps, uploads two supporting PDFs, and downloads a server-generated
 acknowledgement they can re-download from a dashboard at any time.
 
-Built with **Next.js 15 (App Router) · TypeScript · Tailwind CSS v4 · shadcn/ui · MySQL 8 · pdf-lib**.
+Built with **Next.js 15 (App Router) · TypeScript · Tailwind CSS v4 · shadcn/ui · PostgreSQL · Prisma ORM · pdf-lib**.
 
 ---
 
@@ -16,7 +16,7 @@ npm install
 
 # 2. database — either use the bundled compose file...
 docker compose up -d
-# ...or point DATABASE_URL at any MySQL 8 you already run
+# ...or point DATABASE_URL at any Postgres 14+ you already run
 
 # 3. configure
 cp .env.example .env.local
@@ -37,8 +37,8 @@ Other scripts:
 
 | Command | What it does |
 | --- | --- |
-| `npm run db:migrate` | Applies `db/schema.sql`. Safe to re-run. |
-| `npm run db:reset` | Drops the tables and re-applies the schema. |
+| `npm run db:migrate` | `prisma db push` — syncs `prisma/schema.prisma` to the database. Safe to re-run. |
+| `npm run db:reset` | `prisma db push --force-reset` — drops and re-applies the schema. |
 | `npm run typecheck` | `tsc --noEmit`. |
 | `npm run build` / `npm start` | Production build and server. |
 | `npm run smoke -- http://localhost:3000` | End-to-end API smoke test (35 assertions). |
@@ -49,13 +49,11 @@ Other scripts:
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | yes | — | MySQL 8 connection string, e.g. `mysql://pcp:pcp_password@localhost:3306/provisional_certificate` |
+| `DATABASE_URL` | yes | — | PostgreSQL connection string, e.g. `postgresql://pcp:pcp_password@localhost:5432/provisional_certificate` |
 | `JWT_SECRET` | yes | — | HMAC key for session JWTs and signed download tokens. Minimum 32 characters. |
 | `STORAGE_DIR` | no | `./storage/uploads` | Where uploaded PDFs are written. Deliberately outside `public/`. |
 | `SESSION_TTL_SECONDS` | no | `604800` (7 days) | Session lifetime. |
 | `MAX_UPLOAD_BYTES` | no | `5242880` (5 MB) | Per-file upload ceiling. |
-| `DB_SSL` | no | — | Set to `require` for a managed MySQL (PlanetScale, RDS, Railway). |
-| `DB_POOL_MAX` | no | `10` | Connection-pool size. |
 | `S3_BUCKET_NAME` | no | — | S3 bucket name. If provided with Region, switches storage to S3. |
 | `S3_REGION` | no | — | S3 region (e.g. `us-east-1`). |
 | `APP_AWS_ACCESS_KEY_ID` | no | — | Standard AWS credentials (renamed to avoid Netlify reserved vars). |
@@ -90,16 +88,16 @@ src/
 │   ├── dashboard/, layout/, auth/
 └── lib/
     ├── env.ts                 fail-fast env access
-    ├── db/                    mysql2 pool, query helpers, transactions
-    ├── repositories/          users, applications, documents (all SQL lives here)
+    ├── db/                    Prisma client (pg driver adapter)
+    ├── repositories/          users, applications, documents (all Prisma queries live here)
     ├── auth/                  bcrypt hashing, jose JWTs, session cookie
     ├── api/                   error types + centralised route wrapper
     ├── validation/            Zod schemas shared by client and server
-    ├── storage/               ObjectStore interface + local-disk driver
+    ├── storage/               ObjectStore interface + local-disk and S3 drivers
     ├── pdf/certificate.ts     server-side PDF generation
     └── dto.ts                 row → API shape mapping
-db/schema.sql                  the entire schema, idempotent
-scripts/                       migrate, reset, smoke test
+prisma/schema.prisma            the entire schema, source of truth
+scripts/                       smoke test
 ```
 
 ### Request flow for a submission
@@ -112,7 +110,7 @@ scripts/                       migrate, reset, smoke test
    used. Inside one transaction: insert the application, then attach both staged documents.
    If either attach fails, the whole thing rolls back.
 3. The acknowledgement is issued: a serial is drawn from the `certificate_serials`
-   AUTO_INCREMENT table and the row flips to `COMPLETED`.
+   auto-increment table and the row flips to `COMPLETED`.
 4. `GET /api/applications/:id/certificate` renders the PDF with pdf-lib on demand.
 
 ---
@@ -151,7 +149,7 @@ Authentication is a JWT — sent as an httpOnly cookie by the browser, or as
   five-minute token scoped to that one document. Every query is scoped by `user_id`.
 - **Uploads** — type, extension, size and magic bytes are all validated server-side;
   filenames are stripped of path separators and control characters.
-- **SQL** — every statement is a parameterised prepared statement; all of it lives in
+- **SQL** — all queries go through Prisma's parameterised query builder; every query lives in
   `src/lib/repositories`.
 - **Secrets** — nothing hardcoded; `.env.local` is gitignored and `env.ts` refuses to boot
   with a missing or too-short `JWT_SECRET`.
@@ -160,10 +158,10 @@ Authentication is a JWT — sent as an httpOnly cookie by the browser, or as
 
 ## Deployment
 
-The app is a standard Next.js 15 server app plus a MySQL 8 database.
+The app is a standard Next.js 15 server app plus a PostgreSQL database.
 
-1. Provision MySQL (PlanetScale, RDS, Railway, Aiven…) and set `DATABASE_URL` and
-   `DB_SSL=require`.
+1. Provision Postgres (Railway, Neon, RDS, Supabase…) and set `DATABASE_URL`
+   (append `?sslmode=require` for a managed instance).
 2. Run `npm run db:migrate` once against it.
 3. Deploy the app (Railway, Render, Fly.io, a VM, or Vercel/Netlify) with `DATABASE_URL`,
    `JWT_SECRET`.
@@ -189,7 +187,3 @@ npm run smoke -- http://localhost:3000
 ```
 
 See `WRITEUP.md` for the schema rationale, trade-offs and what would come next.
-#   l e n d g a g e  
- #   l e n d g a g e  
- #   l e n d g a g e  
- 

@@ -6,13 +6,18 @@
 a real REST surface, while server components let the dashboard read from the database
 directly instead of making the server call its own HTTP endpoint.
 
-**MySQL 8 with `mysql2`**, no ORM. The task allowed a justified alternative to Postgres or
-Mongo, and this data is unambiguously relational: users own applications, applications own
-documents, and both relationships want foreign keys and cascade deletes. Hand-written SQL
-in a thin repository layer (`src/lib/repositories/*`) keeps every query visible and
-reviewable, adds no query-engine binary to the deploy, and means `db/schema.sql` is the
-single readable source of truth for the schema. The cost is no generated types — mitigated
-by typing each row shape once and mapping to DTOs in one place (`src/lib/dto.ts`).
+**PostgreSQL with Prisma** (via the `@prisma/adapter-pg` driver adapter over `pg`). The data
+is unambiguously relational: users own applications, applications own documents, and both
+relationships want foreign keys and cascade deletes. Postgres and Prisma were chosen over
+the initial hand-rolled MySQL layer for a boring reason — a generated, typed client removes
+a whole class of row-shape bugs at the repository boundary for a fraction of the code, and
+`prisma/schema.prisma` is now the single readable source of truth for the schema (previously
+`db/schema.sql`, hand-maintained). The repository layer (`src/lib/repositories/*`) still
+owns every query so call sites stay boring and every access is scoped by `user_id`, and
+`src/lib/dto.ts` maps Prisma rows to the API's DTO shape. `UNIQUE (application_id, doc_type)`
+carried over unchanged: both Postgres and MySQL treat multiple `NULL`s as distinct in a
+plain unique constraint, so "at most one ID proof and one degree certificate per filed
+application, but any number of staged (unfiled) uploads" needed no partial index in either.
 
 **pdf-lib** for the acknowledgement. Puppeteer would have let me reuse CSS, but it means
 shipping a headless Chromium, ~300 MB of image and a second of cold start per render.
@@ -44,16 +49,16 @@ staged documents have no application yet, and every read wants to be scoped by o
 `user_id` on the row, every document query is `WHERE id = ? AND user_id = ?` — the isolation
 guarantee is one predicate, not a join that a future refactor could drop.
 
-**MySQL's NULL-distinct unique index does real work here.**
+**A NULL-distinct unique constraint does real work here.**
 `UNIQUE (application_id, doc_type)` enforces "at most one ID proof and one degree
-certificate per application" while still allowing any number of staged rows, because MySQL
-treats NULLs as distinct in a unique key. In Postgres this would need a partial index.
+certificate per application" while still allowing any number of staged rows, because
+Postgres (like MySQL) treats NULLs as distinct in a unique key — no partial index needed.
 
 **Reference numbers and serials are deliberately different things.** The public reference
 (`PC-2026-7QK4XM2B9F`) is random — 10 characters from a 32-symbol alphabet with the
 ambiguous letters removed, so it can be read out over a phone but not incremented to guess
 someone else's. The internal certificate serial (`PC/CERT/2026/001042`) is gap-free and
-comes from an `AUTO_INCREMENT` counter table, because that is what a register wants.
+comes from an auto-incrementing counter table, because that is what a register wants.
 Uniqueness of both is enforced by the database, not by application logic.
 
 **A CHECK constraint ties status to issuance:** a row cannot be `COMPLETED` without both a
@@ -61,11 +66,12 @@ serial and an issued-at timestamp. Invariants that matter belong in the schema.
 
 ## Trade-offs made for the time box
 
-- **Local disk instead of S3.** The spec preferred S3; the brief for this build was that it
-  had to run entirely locally. So storage sits behind an `ObjectStore` interface with a
-  local driver that reproduces the property that actually matters — files are private and
-  reachable only through a five-minute signed token, the local equivalent of a pre-signed
-  URL. Swapping in S3 is one new adapter and one changed export.
+- **Local disk by default, S3 as a drop-in.** Storage sits behind an `ObjectStore`
+  interface (`src/lib/storage/`); a local driver is the default for zero-setup development,
+  and an S3 driver (`src/lib/storage/s3.ts`) activates automatically once `S3_BUCKET_NAME`
+  and `S3_REGION` are set — required on any serverless host where local disk is ephemeral.
+  Both preserve the same property: files are private and reachable only through a
+  five-minute signed token / pre-signed URL, never a public bucket or a static path.
 - **No email delivery, no reviewer workflow, no payment step** — explicitly out of scope.
 - **`status` only moves `SUBMITTED → COMPLETED`**, and in the happy path that happens
   within the submit request. The two states exist because the certificate can fail to issue
@@ -88,8 +94,8 @@ serial and an issued-at timestamp. Invariants that matter belong in the schema.
 
 ## What I would do next, with more time
 
-1. **S3/R2 storage** with server-side encryption, pre-signed uploads straight from the
-   browser, and a lifecycle rule for staged documents that were never filed.
+1. **Direct-to-S3 uploads** via pre-signed PUT URLs, so a file never transits the app
+   server, plus a lifecycle rule for staged documents that were never filed.
 2. **A background job** to sweep abandoned staged uploads and their files.
 3. **Rate limiting** on `/api/auth/*` and `/api/uploads`, plus a CSRF double-submit token
    for cookie-authenticated mutations.

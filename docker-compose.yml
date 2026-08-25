@@ -1,26 +1,22 @@
-# Local MySQL for development. `docker compose up -d` then `npm run db:migrate`.
+# Local Postgres for development. `docker compose up -d` then `npm run db:migrate`.
 services:
-  mysql:
-    image: mysql:8.4
-    container_name: pcp-mysql
+  postgres:
+    image: postgres:16
+    container_name: pcp-postgres
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: provisional_certificate
-      MYSQL_USER: pcp
-      MYSQL_PASSWORD: pcp_password
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_0900_ai_ci
+      POSTGRES_DB: provisional_certificate
+      POSTGRES_USER: pcp
+      POSTGRES_PASSWORD: pcp_password
     ports:
-      - "3307:3306"
+      - "5432:5432"
     volumes:
-      - pcp-mysql-data:/var/lib/mysql
+      - pcp-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      test: ["CMD-SHELL", "pg_isready -U pcp"]
       interval: 5s
       timeout: 5s
       retries: 20
 
 volumes:
-  pcp-mysql-data:
+  pcp-postgres-data:
